@@ -1,0 +1,68 @@
+--- vendor/doctrine/orm/lib/Doctrine/ORM/Mapping/Driver/DatabaseDriver.php	2013-01-07 20:05:04.000000000 +0900
++++ vendor/doctrine/orm/lib/Doctrine/ORM/Mapping/Driver/MODIFIED.DatabaseDriver.php	2013-04-10 14:43:00.000000000 +0900
+@@ -311,12 +311,61 @@
+                     'referencedColumnName' => $fkCols[$i],
+                 );
+             }
++            $metadata->mapManyToOne($associationMapping);
++        }
+
+-            //Here we need to check if $cols are the same as $primaryKeyColums
+-            if (!array_diff($cols,$primaryKeyColumns)) {
+-                $metadata->mapOneToOne($associationMapping);
++        foreach ($this->tables as $tableCandidate) {
++            if ($this->_sm->getDatabasePlatform()->supportsForeignKeyConstraints()) {
++                $foreignKeysCandidate = $tableCandidate->getForeignKeys();
+             } else {
+-                $metadata->mapManyToOne($associationMapping);
++                $foreignKeysCandidate = array();
++            }
++
++            $associationMappings = array();
++            foreach ($foreignKeysCandidate as $i => $foreignKey) {
++                $foreignTable = $foreignKey->getForeignTableName();
++                if ($foreignTable == $tableName && !isset($this->manyToManyTables[$tableCandidate->getName()])) {
++                    $fkCols = $foreignKey->getForeignColumns();
++                    $cols = $foreignKey->getColumns();
++                    $localColumn = current($cols);
++                    $associationMapping = array();
++                    $associationMapping['fieldName'] = $this->getFieldNameForColumn($tableCandidate->getName(), $tableCandidate->getName(), true);
++                    $associationMapping['targetEntity'] = $this->getClassNameForTable($tableCandidate->getName());
++                    $associationMapping['mappedBy'] = $this->getFieldNameForColumn($tableCandidate->getName(), $localColumn, true);
++                    try {
++                        $primaryKeyColumns = $tableCandidate->getPrimaryKey()->getColumns();
++                        if (count($primaryKeyColumns) == 1) {
++                            $indexColumn = current($primaryKeyColumns);
++                            $associationMapping['indexBy'] = $indexColumn;
++                        }
++                    } catch (SchemaException $e) {
++                        ;
++                    }
++                    $associationMappings[] = $associationMapping;
++                }
++            }
++            // このテーブルに対し同じテーブルから複数外部参照が張ってある場合は
++            // このテーブルからの OneToMany 参照は作らない
++            $mappings = array();
++            $duplicates = array();
++            foreach ($associationMappings as $map) {
++                $t = $map['targetEntity'];
++                if (isset($duplicates[$t])) {
++                    continue;
++                }
++                if (isset($mappings[$t])) {
++                    unset($mappings[$t]);
++                    $duplicates[$t] = 1;
++                } else {
++                    $mappings[$t] = $map;
++                }
++            }
++            // 重複のない外部参照のみ登録
++            foreach ($mappings as $map) {
++                //print sprintf("%s: fieldName=%s targetEntity=%s mappedBy=%s indexBy=%s\n",
++                //    $tableName, $map['fieldName'], $map['targetEntity'],
++                //    $map['mappedBy'], $map['indexBy']);
++                $metadata->mapOneToMany($map);
+             }
+         }
+     }
